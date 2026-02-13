@@ -31,7 +31,7 @@ class Document(models.Model):
 class DocumentChunk(models.Model):
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="chunks")
     content = models.TextField()  # The actual text piece
-    embedding = VectorField(dimensions=1536)  # OpenAI's embedding size
+    embedding = VectorField(dimensions=768)  # OpenAI's embedding size
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

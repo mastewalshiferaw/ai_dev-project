@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, Bot, Loader2 } from "lucide-react";
 
 interface Message {
   id: number;
@@ -16,7 +16,6 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -34,32 +33,46 @@ export default function ChatInterface() {
       content: input,
     };
 
-    // 1. Add User Message to UI immediately
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
 
     try {
-      // 2. Call Django API
+      // 1. Get Token from localStorage
+      const token = localStorage.getItem("access_token");
       
+      // 2. Call Django API with Authorization Header
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/chat/`,
-        { message: userMessage.content }
+        { message: userMessage.content },
+        {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        }
       );
 
       const aiMessage: Message = {
         id: Date.now() + 1,
         sender: "ai",
-        content: response.data.message.content, // From Django
+        content: response.data.message.content,
       };
 
       setMessages((prev) => [...prev, aiMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sending message:", error);
+      
+      let errorText = "Sorry, I'm having trouble connecting to the server.";
+      
+      // Handle Token Expiry or Authentication error
+      if (error.response && error.response.status === 401) {
+        errorText = "Session expired. Please sign out and log in again.";
+      }
+
       const errorMessage: Message = {
         id: Date.now() + 1,
         sender: "ai",
-        content: "Sorry, I'm having trouble connecting to the server.",
+        content: errorText,
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {

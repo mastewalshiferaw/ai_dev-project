@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
-import { Send, Bot, Loader2 } from "lucide-react";
+import { Send, Bot, Loader2, Paperclip, LogOut } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface Message {
   id: number;
@@ -14,7 +15,9 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -24,32 +27,52 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
+  // --- NEW: FILE UPLOAD LOGIC ---
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const token = localStorage.getItem("access_token");
+      await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/upload/`, formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      alert("File uploaded and processed successfully!");
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Failed to upload file.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    router.push("/login");
+  };
+
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage: Message = {
-      id: Date.now(),
-      sender: "user",
-      content: input,
-    };
-
+    const userMessage: Message = { id: Date.now(), sender: "user", content: input };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
 
     try {
-      // 1. Get Token from localStorage
       const token = localStorage.getItem("access_token");
-      
-      // 2. Call Django API with Authorization Header
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/chat/`,
         { message: userMessage.content },
-        {
-            headers: {
-                Authorization: `Bearer ${token}`
-            }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       const aiMessage: Message = {
@@ -57,42 +80,29 @@ export default function ChatInterface() {
         sender: "ai",
         content: response.data.message.content,
       };
-
       setMessages((prev) => [...prev, aiMessage]);
     } catch (error: any) {
-      console.error("Error sending message:", error);
-      
-      let errorText = "Sorry, I'm having trouble connecting to the server.";
-      
-      // Handle Token Expiry or Authentication error
-      if (error.response && error.response.status === 401) {
-        errorText = "Session expired. Please sign out and log in again.";
-      }
-
-      const errorMessage: Message = {
-        id: Date.now() + 1,
-        sender: "ai",
-        content: errorText,
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      console.error("Chat error:", error);
+      const errorText = error.response?.status === 401 
+        ? "Session expired. Please login again." 
+        : "Server error. Try again later.";
+      setMessages((prev) => [...prev, { id: Date.now(), sender: "ai", content: errorText }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
   return (
-    <div className="flex flex-col h-[600px] w-full max-w-2xl bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-100">
+    <div className="flex flex-col h-[600px] w-full max-w-2xl bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-100 mx-auto mt-10">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white flex items-center gap-2">
-        <Bot className="w-6 h-6" />
-        <h2 className="font-semibold text-lg">AI Knowledge Assistant</h2>
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bot className="w-6 h-6" />
+          <h2 className="font-semibold text-lg">AI Knowledge Assistant</h2>
+        </div>
+        <button onClick={handleSignOut} className="hover:bg-white/20 p-2 rounded-lg transition">
+          <LogOut className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Messages Area */}
@@ -100,34 +110,25 @@ export default function ChatInterface() {
         {messages.length === 0 && (
           <div className="text-center text-gray-400 mt-20">
             <Bot className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p>Ask me anything about the uploaded documents!</p>
+            <p>Upload a document and ask me questions!</p>
           </div>
         )}
 
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${
-              msg.sender === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`max-w-[80%] rounded-2xl p-3 flex gap-2 ${
-                msg.sender === "user"
-                  ? "bg-blue-600 text-white rounded-br-none"
-                  : "bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm"
-              }`}
-            >
-              <span className="text-sm">{msg.content}</span>
+          <div key={msg.id} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+            <div className={`max-w-[80%] rounded-2xl p-3 shadow-sm ${
+              msg.sender === "user" ? "bg-blue-600 text-white rounded-br-none" : "bg-white border text-gray-800 rounded-bl-none"
+            }`}>
+              <span className="text-sm whitespace-pre-wrap">{msg.content}</span>
             </div>
           </div>
         ))}
 
-        {isLoading && (
+        {(isLoading || isUploading) && (
           <div className="flex justify-start">
-            <div className="bg-white border border-gray-200 p-3 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-2">
+            <div className="bg-white border p-3 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-              <span className="text-sm text-gray-500">Thinking...</span>
+              <span className="text-sm text-gray-500">{isUploading ? "Processing file..." : "Thinking..."}</span>
             </div>
           </div>
         )}
@@ -136,20 +137,26 @@ export default function ChatInterface() {
 
       {/* Input Area */}
       <div className="p-4 bg-white border-t border-gray-100">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {/* File Upload Button */}
+          <label className="cursor-pointer p-2 text-gray-400 hover:text-blue-600 transition-colors">
+            <Paperclip className="w-6 h-6" />
+            <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+          </label>
+
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             placeholder="Type your question..."
-            className="flex-1 p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            className="flex-1 p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
             disabled={isLoading}
           />
           <button
             onClick={sendMessage}
             disabled={isLoading || !input.trim()}
-            className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50"
           >
             <Send className="w-5 h-5" />
           </button>

@@ -1,16 +1,12 @@
-import "./globals.css"; // Ensure your Tailwind/CSS is imported
+import "./globals.css";
+import { Inter } from "next/font/google";
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+const inter = Inter({ subsets: ["latin"] });
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        {/* This "children" is where your /login page or /chat page will be injected */}
-        {children}
-      </body>
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }

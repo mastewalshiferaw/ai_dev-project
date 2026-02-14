@@ -3,6 +3,7 @@
 import { useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+// We use simple HTML elements first to ensure it works, then style them
 import { Lock, User } from "lucide-react";
 
 export default function LoginPage() {
@@ -17,77 +18,82 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    try {
-      const url = `${process.env.NEXT_PUBLIC_API_URL}/token/`;
-      const res = await axios.post(url, {
-        username,
-        password,
-      });
+    // HARDCODED URL - This MUST match your Django URL
+    const API_URL = "http://127.0.0.1:8000/api/token/";
+    
+    console.log("Sending request to:", API_URL); // Check your browser console!
 
-      // 1. Save tokens
+    try {
+      const res = await axios.post(API_URL, { username, password });
+      
+      console.log("Login Success!", res.data);
       localStorage.setItem("access_token", res.data.access);
       localStorage.setItem("refresh_token", res.data.refresh);
-
-      // 2. Redirect to Chat
       router.push("/");
-    } catch (err) {
-      setError("Invalid username or password");
+      
+    } catch (err: any) {
+      console.error("Login Failed:", err);
+      if (err.code === "ERR_NETWORK") {
+        setError("Cannot connect to Django. Is the Backend running?");
+      } else if (err.response?.status === 404) {
+        setError("Error 404: Django URL not found. Check urls.py");
+      } else if (err.response?.status === 401) {
+        setError("Wrong username or password.");
+      } else {
+        setError("Login failed. Check console for details.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Welcome Back</h1>
-          <p className="text-gray-500 mt-2">Sign in to access your AI Assistant</p>
-        </div>
-
+    // If this background doesn't show up, Tailwind is broken.
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-600 to-blue-600">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl p-8">
+        <h2 className="text-3xl font-bold text-center text-gray-800 mb-8">AI Login</h2>
+        
         {error && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm text-center">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             {error}
           </div>
         )}
 
         <form onSubmit={handleLogin} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <label className="block text-gray-700 mb-2">Username</label>
             <div className="relative">
-              <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                placeholder="Enter your username"
+              <User className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+              <input 
+                type="text" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="admin"
               />
             </div>
           </div>
-
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="block text-gray-700 mb-2">Password</label>
             <div className="relative">
-              <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-              <input
-                type="password"
-                required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                placeholder="••••••••"
+              <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+              <input 
+                type="password" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="password"
               />
             </div>
           </div>
 
-          <button
-            type="submit"
+          <button 
+            type="submit" 
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? "Connecting..." : "Sign In"}
           </button>
         </form>
       </div>

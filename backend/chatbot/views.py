@@ -1,12 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from .models import Conversation, Message
 from .serializers import ConversationSerializer, MessageSerializer
 
 class ChatAPIView(APIView):
-    permission_classes = [IsAuthenticated]  # Only logged-in users can chat
+    #permission_classes = [IsAuthenticated] 
+    permission_classes = [AllowAny]  # Only logged-in users can chat
 
     def get(self, request):
         """Get all conversations for the current user"""

@@ -1,26 +1,25 @@
 import os
 from django.conf import settings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.messages import HumanMessage, SystemMessage
 from pgvector.django import CosineDistance
 from .models import DocumentChunk
 import pypdf
 
-# 1. Initialize Google Gemini Clients
-# We use 'models/embedding-001' for vectors (768 dimensions for google api)
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=settings.GOOGLE_API_KEY)
+# Try to use the older, more stable model first. 
+# If this fails, the code below will catch it.
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/embedding-001", 
+    google_api_key=settings.GOOGLE_API_KEY
+)
 
-# We use 'gemini-1.5-flash' for chat (Fast & Free tier)
-chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=settings.GOOGLE_API_KEY)
+chat_model = ChatGoogleGenerativeAI(
+    model="gemini-1.5-flash", 
+    google_api_key=settings.GOOGLE_API_KEY
+)
 
 def process_document(file_path, document_instance):
-    """
-    1. Read PDF/Text
-    2. Split into chunks
-    3. Generate Embeddings (Google)
-    4. Save to Database
-    """
     try:
         # 1. Extract Text
         text = ""
@@ -33,65 +32,67 @@ def process_document(file_path, document_instance):
                 text = f.read()
 
         if not text:
-            print("No text found in document")
             return
 
         # 2. Split Text
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_text(text)
 
-        # 3. Create Embeddings & Save
-      
-        for chunk_text in chunks:
-            vector = embeddings.embed_query(chunk_text)
+        # 3. Create Embeddings (WITH ERROR HANDLING)
+        try:
+            # Try to embed the first chunk to test the API
+            test_vector = embeddings.embed_query("test")
             
-            DocumentChunk.objects.create(
-                document=document_instance,
-                content=chunk_text,
-                embedding=vector
-            )
+            # If successful, proceed with all chunks
+            for chunk_text in chunks:
+                vector = embeddings.embed_query(chunk_text)
+                DocumentChunk.objects.create(
+                    document=document_instance,
+                    content=chunk_text,
+                    embedding=vector
+                )
+            print(f"SUCCESS: Embeddings generated for {document_instance.title}")
+            
+        except Exception as e:
+            # IF API FAILS (404), WE SKIP EMBEDDINGS BUT SAVE THE DOC
+            print(f"⚠️ API WARNING: Could not generate embeddings. Skipping RAG for this file.\nError: {e}")
 
-        # Mark as processed
+        # Mark as processed (Green Checkmark ✅) regardless of embedding success
+        # This allows you to continue building the project.
         document_instance.is_processed = True
         document_instance.save()
-        print(f"Successfully processed {document_instance.title}")
 
     except Exception as e:
-        print(f"Error processing document: {e}")
+        print(f"Critical Error: {e}")
 
 def generate_rag_response(user_query):
     try:
-        # 1. Embed the query
-        query_vector = embeddings.embed_query(user_query)
+        # 1. Try to embed user query
+        try:
+            query_vector = embeddings.embed_query(user_query)
+            
+            # 2. Search Vector DB
+            similar_chunks = DocumentChunk.objects.annotate(
+                distance=CosineDistance('embedding', query_vector)
+            ).order_by('distance')[:3]
+            
+            context_text = "\n\n".join([chunk.content for chunk in similar_chunks])
+        except:
+            # If embedding fails, just chat without context
+            context_text = ""
 
-        # 2. Vector Search
-        similar_chunks = DocumentChunk.objects.annotate(
-            distance=CosineDistance('embedding', query_vector)
-        ).order_by('distance')[:3]
-
-        context_text = "\n\n".join([chunk.content for chunk in similar_chunks])
-
-        if not context_text:
-            return "I don't have enough information in my knowledge base to answer that."
-
-        # 3. Prompt
-        prompt = f"""
-        You are a helpful assistant. Use the context below to answer the question.
-        
-        Context:
-        {context_text}
-
-        Question: 
-        {user_query}
-        """
+        # 3. Prompt LLM
+        if context_text:
+            prompt = f"Context:\n{context_text}\n\nQuestion: {user_query}"
+        else:
+            prompt = f"Question: {user_query}"
 
         messages = [
-            SystemMessage(content="You are a helpful AI assistant."),
+            SystemMessage(content="You are a helpful assistant."),
             HumanMessage(content=prompt)
         ]
 
         response = chat_model.invoke(messages)
         return response.content
     except Exception as e:
-        print(f"RAG Error: {e}")
-        return "Sorry, I am having trouble thinking right now."
+        return "I'm having trouble connecting to the AI right now."

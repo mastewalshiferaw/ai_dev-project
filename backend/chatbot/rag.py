@@ -15,7 +15,7 @@ embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 # 2. SETUP GROQ CHAT (Cloud AI - Fast & Free)
 chat_model = ChatGroq(
-    model="llama3-8b-8192", # Using Meta's Llama 3 model
+    model="llama-3.1-8b-instant", 
     api_key=os.getenv("GROQ_API_KEY")
 )
 
@@ -83,11 +83,31 @@ def generate_rag_response(user_query):
             prompt = f"Answer the question based ONLY on the following context:\n\n{context_text}\n\nQuestion: {user_query}"
         else:
             prompt = f"Question: {user_query}"
+        
+        ai_name = "Maste's"  
+        creator_name = "Mastewal" 
+        
+        system_prompt = f"""
+        You are {ai_name}, a highly intelligent Knowledge Assistant. 
+        You were created and trained by {creator_name}.
+        
+        Your personality is:
+        - Professional yet friendly.
+        - Helpful and concise.
+        - When asked "Who are you?", you must answer that you are {ai_name}.
+        
+        If the context below contains the answer, use it. 
+        If not, use your general knowledge but stay in character.
+        """
 
+        #messages = [
+         #   SystemMessage(content="You are a helpful AI assistant."),
+         #   HumanMessage(content=prompt)
+        #]
         messages = [
-            SystemMessage(content="You are a helpful AI assistant."),
-            HumanMessage(content=prompt)
-        ]
+        SystemMessage(content=system_prompt), 
+        HumanMessage(content=prompt)
+    ]
         
         response = chat_model.invoke(messages)
         return response.content

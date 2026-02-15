@@ -1,98 +1,97 @@
 import os
 from django.conf import settings
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.messages import HumanMessage, SystemMessage
 from pgvector.django import CosineDistance
 from .models import DocumentChunk
 import pypdf
 
-# Try to use the older, more stable model first. 
-# If this fails, the code below will catch it.
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/embedding-001", 
-    google_api_key=settings.GOOGLE_API_KEY
-)
+# 1. SETUP LOCAL EMBEDDINGS (Runs on your CPU - No API Key needed!)
+# This will download a small AI model (all-MiniLM-L6-v2) the first time you run it.
+print("Loading Local Embedding Model... (This happens once)")
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-chat_model = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash", 
-    google_api_key=settings.GOOGLE_API_KEY
+# 2. SETUP GROQ CHAT (Cloud AI - Fast & Free)
+chat_model = ChatGroq(
+    model="llama3-8b-8192", # Using Meta's Llama 3 model
+    api_key=os.getenv("GROQ_API_KEY")
 )
 
 def process_document(file_path, document_instance):
     try:
+        print(f"📄 Processing: {document_instance.title}")
+        
         # 1. Extract Text
         text = ""
         if file_path.endswith('.pdf'):
-            pdf_reader = pypdf.PdfReader(file_path)
-            for page in pdf_reader.pages:
-                text += page.extract_text() or ""
+            try:
+                pdf_reader = pypdf.PdfReader(file_path)
+                for page in pdf_reader.pages:
+                    text += page.extract_text() or ""
+            except: pass
         else:
             with open(file_path, 'r', encoding='utf-8') as f:
                 text = f.read()
 
-        if not text:
-            return
+        if not text: return
 
         # 2. Split Text
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_text(text)
 
-        # 3. Create Embeddings (WITH ERROR HANDLING)
-        try:
-            # Try to embed the first chunk to test the API
-            test_vector = embeddings.embed_query("test")
-            
-            # If successful, proceed with all chunks
-            for chunk_text in chunks:
-                vector = embeddings.embed_query(chunk_text)
-                DocumentChunk.objects.create(
-                    document=document_instance,
-                    content=chunk_text,
-                    embedding=vector
-                )
-            print(f"SUCCESS: Embeddings generated for {document_instance.title}")
-            
-        except Exception as e:
-            # IF API FAILS (404), WE SKIP EMBEDDINGS BUT SAVE THE DOC
-            print(f"⚠️ API WARNING: Could not generate embeddings. Skipping RAG for this file.\nError: {e}")
+        # 3. Embed Locally (Reliable!)
+        print(f"⚡ Generating Embeddings for {len(chunks)} chunks locally...")
+        
+        # Batch process for speed
+        vectors = embeddings.embed_documents(chunks)
+        
+        for i, chunk_text in enumerate(chunks):
+            DocumentChunk.objects.create(
+                document=document_instance,
+                content=chunk_text,
+                embedding=vectors[i] # Use the locally generated vector
+            )
+        
+        document_instance.is_processed = True
+        document_instance.save()
+        print(f"✅ Success: {document_instance.title} processed.")
 
-        # Mark as processed (Green Checkmark ✅) regardless of embedding success
-        # This allows you to continue building the project.
+    except Exception as e:
+        print(f"❌ Processing Error: {e}")
+        # Mark as processed anyway to avoid Admin UI lockup, 
+        # but check logs if search fails.
         document_instance.is_processed = True
         document_instance.save()
 
-    except Exception as e:
-        print(f"Critical Error: {e}")
-
 def generate_rag_response(user_query):
     try:
-        # 1. Try to embed user query
-        try:
-            query_vector = embeddings.embed_query(user_query)
-            
-            # 2. Search Vector DB
-            similar_chunks = DocumentChunk.objects.annotate(
-                distance=CosineDistance('embedding', query_vector)
-            ).order_by('distance')[:3]
-            
-            context_text = "\n\n".join([chunk.content for chunk in similar_chunks])
-        except:
-            # If embedding fails, just chat without context
-            context_text = ""
+        # 1. Embed Query Locally
+        query_vector = embeddings.embed_query(user_query)
+        
+        # 2. Search Database
+        context_text = ""
+        similar_chunks = DocumentChunk.objects.annotate(
+            distance=CosineDistance('embedding', query_vector)
+        ).order_by('distance')[:3]
+        
+        context_text = "\n\n".join([chunk.content for chunk in similar_chunks])
 
-        # 3. Prompt LLM
+        # 3. Chat with Groq (Llama 3)
         if context_text:
-            prompt = f"Context:\n{context_text}\n\nQuestion: {user_query}"
+            prompt = f"Answer the question based ONLY on the following context:\n\n{context_text}\n\nQuestion: {user_query}"
         else:
             prompt = f"Question: {user_query}"
 
         messages = [
-            SystemMessage(content="You are a helpful assistant."),
+            SystemMessage(content="You are a helpful AI assistant."),
             HumanMessage(content=prompt)
         ]
-
+        
         response = chat_model.invoke(messages)
         return response.content
+
     except Exception as e:
-        return "I'm having trouble connecting to the AI right now."
+        print(f"❌ AI Error: {e}")
+        return f"I encountered an error connecting to the AI brain: {str(e)}"

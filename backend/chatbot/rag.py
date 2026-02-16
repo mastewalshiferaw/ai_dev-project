@@ -67,6 +67,15 @@ def process_document(file_path, document_instance):
 
 def generate_rag_response(user_query):
     try:
+
+        clean_query = user_query.lower().strip().replace('!', '').replace('.','')
+        greetings = ["hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening", "how are you"]
+
+        if clean_query in greetings:
+            return "Hello! I am your AI knowledge Assistant. I'm ready to answer questions about your uploaded documents."
+
+
+
         # 1. Embed Query Locally
         query_vector = embeddings.embed_query(user_query)
         
@@ -81,8 +90,11 @@ def generate_rag_response(user_query):
         # 3. Chat with Groq (Llama 3)
         if context_text:
             prompt = f"Answer the question based ONLY on the following context:\n\n{context_text}\n\nQuestion: {user_query}"
+        elif context_text:
+            prompt = f"Answer the "
         else:
             prompt = f"Question: {user_query}"
+            
         
         ai_name = "Maste's"  
         creator_name = "Mastewal" 

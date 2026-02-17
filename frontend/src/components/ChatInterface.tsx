@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
-import { Send, Bot, Loader2, Paperclip, LogOut } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Send, Bot, User, Loader2, Paperclip } from "lucide-react";
 
 interface Message {
   id: number;
@@ -15,9 +14,7 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -27,42 +24,15 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  // --- NEW: FILE UPLOAD LOGIC ---
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const token = localStorage.getItem("access_token");
-      await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/upload/`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
-      alert("File uploaded and processed successfully!");
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("Failed to upload file.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleSignOut = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    router.push("/login");
-  };
-
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage: Message = { id: Date.now(), sender: "user", content: input };
+    const userMessage: Message = {
+      id: Date.now(),
+      sender: "user",
+      content: input,
+    };
+
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
@@ -72,7 +42,9 @@ export default function ChatInterface() {
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/chat/`,
         { message: userMessage.content },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+            headers: { Authorization: `Bearer ${token}` }
+        }
       );
 
       const aiMessage: Message = {
@@ -80,55 +52,85 @@ export default function ChatInterface() {
         sender: "ai",
         content: response.data.message.content,
       };
+
       setMessages((prev) => [...prev, aiMessage]);
-    } catch (error: any) {
-      console.error("Chat error:", error);
-      const errorText = error.response?.status === 401 
-        ? "Session expired. Please login again." 
-        : "Server error. Try again later.";
-      setMessages((prev) => [...prev, { id: Date.now(), sender: "ai", content: errorText }]);
+    } catch (error) {
+      console.error(error);
+      const errorMessage: Message = {
+        id: Date.now() + 1,
+        sender: "ai",
+        content: "I'm having trouble connecting to the neural network.",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
   return (
-    <div className="flex flex-col h-[600px] w-full max-w-2xl bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-100 mx-auto mt-10">
+    // GLASS CONTAINER
+    <div className="flex flex-col h-[650px] w-full bg-gray-900/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
+      
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="w-6 h-6" />
-          <h2 className="font-semibold text-lg">AI Knowledge Assistant</h2>
+      <div className="bg-white/5 border-b border-white/10 p-4 flex items-center gap-3">
+        <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg shadow-lg shadow-purple-500/20">
+          <Bot className="w-5 h-5 text-white" />
         </div>
-        <button onClick={handleSignOut} className="hover:bg-white/20 p-2 rounded-lg transition">
-          <LogOut className="w-5 h-5" />
-        </button>
+        <div>
+          <h2 className="font-semibold text-white">Neural Assistant</h2>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs text-gray-400">Online & Ready</span>
+          </div>
+        </div>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
         {messages.length === 0 && (
-          <div className="text-center text-gray-400 mt-20">
-            <Bot className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p>Upload a document and ask me questions!</p>
+          <div className="text-center mt-20 opacity-50">
+            <Bot className="w-16 h-16 mx-auto mb-4 text-purple-400" />
+            <p className="text-gray-300 text-lg font-medium">How can I help you today?</p>
+            <p className="text-sm text-gray-500 mt-2">Ask about your documents, code, or data.</p>
           </div>
         )}
 
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[80%] rounded-2xl p-3 shadow-sm ${
-              msg.sender === "user" ? "bg-blue-600 text-white rounded-br-none" : "bg-white border text-gray-800 rounded-bl-none"
-            }`}>
-              <span className="text-sm whitespace-pre-wrap">{msg.content}</span>
+          <div
+            key={msg.id}
+            className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[80%] rounded-2xl p-4 flex gap-3 shadow-md ${
+                msg.sender === "user"
+                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-br-sm"
+                  : "bg-gray-800/80 border border-white/5 text-gray-100 rounded-bl-sm backdrop-blur-sm"
+              }`}
+            >
+              <div className="mt-1 shrink-0">
+                {msg.sender === "user" ? (
+                  <User className="w-4 h-4 text-blue-200" />
+                ) : (
+                  <Bot className="w-4 h-4 text-purple-400" />
+                )}
+              </div>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
             </div>
           </div>
         ))}
 
-        {(isLoading || isUploading) && (
+        {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-white border p-3 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-              <span className="text-sm text-gray-500">{isUploading ? "Processing file..." : "Thinking..."}</span>
+            <div className="bg-gray-800/50 border border-white/5 p-4 rounded-2xl rounded-bl-sm flex items-center gap-3">
+              <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+              <span className="text-sm text-gray-400">Processing data...</span>
             </div>
           </div>
         )}
@@ -136,30 +138,33 @@ export default function ChatInterface() {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 bg-white border-t border-gray-100">
-        <div className="flex gap-2 items-center">
-          {/* File Upload Button */}
-          <label className="cursor-pointer p-2 text-gray-400 hover:text-blue-600 transition-colors">
-            <Paperclip className="w-6 h-6" />
-            <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-          </label>
+      <div className="p-4 bg-white/5 border-t border-white/10">
+        <div className="relative flex items-center gap-2">
+          {/* Decorative Paperclip (Simulates attachment) */}
+          <button className="p-3 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors">
+            <Paperclip className="w-5 h-5" />
+          </button>
 
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-            placeholder="Type your question..."
-            className="flex-1 p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+            onKeyDown={handleKeyPress}
+            placeholder="Type your message..."
+            className="flex-1 bg-gray-900/50 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
             disabled={isLoading}
           />
+          
           <button
             onClick={sendMessage}
             disabled={isLoading || !input.trim()}
-            className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50"
+            className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-95"
           >
             <Send className="w-5 h-5" />
           </button>
+        </div>
+        <div className="text-center mt-2">
+           <p className="text-[10px] text-gray-500">AI can make mistakes. Check important info.</p>
         </div>
       </div>
     </div>
